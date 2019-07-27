@@ -1,4 +1,13 @@
-﻿using System;
+﻿/*
+ Author: Kiet Nguyen
+ Date: June 09, 2019
+ Program: This program simulates a password manager console
+ It allows user to add more account info, delete, update 
+ password.
+ 
+ */
+
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -7,6 +16,9 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using AccountCollection;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Schema;
+using Newtonsoft.Json.Linq;
+
 
 namespace PasswordManager
 {
@@ -17,6 +29,8 @@ namespace PasswordManager
             //display header
             Console.WriteLine("PASSWORD MANAGEMENT SYSTEM\n");
             bool show = false;
+            string path_json_data = RelativeToAbsolutePath("accountCollection.json");
+            string path_json_schema = RelativeToAbsolutePath("json-schema-password-manager.json");
             do
             {
                 Console.WriteLine("+--------------------------------------------------------------------+");
@@ -24,7 +38,7 @@ namespace PasswordManager
                 Console.WriteLine("+--------------------------------------------------------------------+");
                 Collection cltn = new Collection();
                 //check if JSON file exists
-                if (!File.Exists(@"c:\accountCollection.json"))
+                if (!File.Exists(path_json_data))
                 {
                     cltn.accCollection = new List<Account>();
                 }
@@ -64,66 +78,69 @@ namespace PasswordManager
                 string PDMCommand = "";
                 bool validPDM;
                 bool empty;
+                bool inputAgain;
 
                 // Add new entry                
                 if (command.ToUpper() == "A")
                 {
                     Account acc = new Account();
-                    Console.WriteLine("Please key-in values for the following fields...\n");
                     do
                     {
+                        Console.WriteLine("Please key-in values for the following fields...\n");
                         Console.Write("Description:   ");
                         acc.description = Console.ReadLine();
-                        empty = string.IsNullOrEmpty(acc.description);
-                        if(empty)
-                        {
-                            Console.WriteLine("ERROR: The value should not be empty.");
-                        }
-                    } while (empty);
-
-                    do
-                    {
+                       
                         Console.Write("User ID:       ");
                         acc.userID = Console.ReadLine();
-                        empty = string.IsNullOrEmpty(acc.userID);
-                        if (empty)
-                        {
-                            Console.WriteLine("ERROR: The value should not be empty.");
-                        }
-                    } while (empty);
 
-                    do
-                    {
-                        Console.Write("Password:      ");
-                        acc.psWord.password = Console.ReadLine();
-                        empty = string.IsNullOrEmpty(acc.psWord.password);
-                        if (empty)
+                        do
                         {
-                            Console.WriteLine("ERROR: The value should not be empty.");
-                        }                        
-                    } while (empty);
-                    acc.psWord.pwLastReset = DateTime.Now.ToShortDateString();
-                    PasswordTester pwTester = new PasswordTester(acc.psWord.password);
-                    acc.psWord.pwStrengthText = pwTester.StrengthLabel;
-                    acc.psWord.pwStrengthNum = pwTester.StrengthPercent;
+                            Console.Write("Password:      ");
+                            acc.psWord.password = Console.ReadLine();
+                            empty = string.IsNullOrEmpty(acc.psWord.password);
+                            if (empty)
+                            {
+                                Console.WriteLine("ERROR: The password should not be empty.");
+                            }                     
+                        } while (empty);                            
+                        acc.psWord.pwLastReset = DateTime.Now.ToShortDateString();
+                        PasswordTester pwTester = new PasswordTester(acc.psWord.password);
+                        acc.psWord.pwStrengthText = pwTester.StrengthLabel;
+                        acc.psWord.pwStrengthNum = pwTester.StrengthPercent;
 
-                    bool validURL;
-                    do
-                    {
                         Console.Write("Login url:     ");
                         acc.loginURL = Console.ReadLine();
-                        validURL = Regex.IsMatch(acc.loginURL, @"\Ahttps?://www.+");
-                        if(!validURL)
+                        if(acc.loginURL == "")
                         {
-                            Console.WriteLine("ERROR: Invalid Login URL entered. Please try again.");
+                            acc.loginURL = null;// if user does not provide login url, set the value to null to make it valid when validate with format URI
                         }
-                    } while (!validURL);
-
-                    Console.Write("Account #:     ");
-                    acc.accountNo = Console.ReadLine();
-                    cltn.addAccount(acc);
-                    cltn.accCollection.Any();
-                    show = true;
+                        
+                        Console.Write("Account #:     ");
+                        acc.accountNo = Console.ReadLine();
+                        cltn.addAccount(acc);
+                        //write data to Json file, Read the file and validate against schema
+                        WriteDataToJsonFile(cltn);
+                        string json_data = File.ReadAllText(path_json_data);
+                        string json_schema = File.ReadAllText(path_json_schema);
+                        IList<string> messages;
+                        if (ValidateAccountData(json_data, json_schema, out messages)) // if validation is successful
+                        {
+                            show = true; //show main menu 
+                            inputAgain = false; // don't ask for re-enter account info
+                        }
+                        else // unsuccessful validation against schema
+                        {
+                            Console.WriteLine("ERROR: Invalid account information entered. Please try again.");
+                            foreach (string msg in messages)
+                                Console.WriteLine($"\t{msg}"); // output all error msg
+                            if (cltn.accCollection.Any())
+                            {
+                                cltn.deleteAccount(acc); // delete the account with invalid input
+                            }
+                            WriteDataToJsonFile(cltn);
+                            inputAgain = true; //ask for re-enter account info
+                        }
+                    } while (inputAgain);                                           
                 }
                 //View selected entry
                 else if (Int32.TryParse(command, out commandNum))
@@ -160,11 +177,19 @@ namespace PasswordManager
                             //Change Password
                             if (PDMCommand.ToUpper() == "P")
                             {
-                                Console.Write("New Password:    ");
-                                selectedAccount.psWord.password = Console.ReadLine();
+                                do { 
+                                    Console.Write("New Password:    ");
+                                    selectedAccount.psWord.password = Console.ReadLine();
+                                    empty = string.IsNullOrEmpty(selectedAccount.psWord.password);
+                                    if (empty)
+                                    {
+                                        Console.WriteLine("ERROR: The password should not be empty.");
+                                    }
+                                } while(empty);
                                 PasswordTester pwTester = new PasswordTester(selectedAccount.psWord.password);
                                 selectedAccount.psWord.pwStrengthText = pwTester.StrengthLabel;
                                 selectedAccount.psWord.pwStrengthNum = pwTester.StrengthPercent;
+                                selectedAccount.psWord.pwLastReset = DateTime.Now.ToShortDateString();
                                 show = true; //display main menu
                             }
                             //Delete selected entry
@@ -189,8 +214,7 @@ namespace PasswordManager
                     {
                         Console.WriteLine("Invalid account sequence in the list!");
                         show = true;
-                    }
-                    
+                    }                  
                 }
                 //Exit program
                 else if (command.ToUpper() == "X") 
@@ -210,14 +234,34 @@ namespace PasswordManager
         private static void WriteDataToJsonFile(Collection cltn)
         {
             string json = JsonConvert.SerializeObject(cltn);
-            File.WriteAllText("c:\\accountCollection.json", json);
+            string path = RelativeToAbsolutePath("accountCollection.json");
+            try
+            {
+                File.WriteAllText(path, json);
+            }
+            catch(IOException)
+            {
+                Console.WriteLine("ERROR: Cannot write to JSON file");
+            }
         }
 
         private static Collection ReadJsonFileToCollection()
         {
-            string json = File.ReadAllText("c:\\accountCollection.json");
+            string path = RelativeToAbsolutePath("accountCollection.json");
+            string json = File.ReadAllText(path);
             return JsonConvert.DeserializeObject<Collection>(json);
         }
+        private static bool ValidateAccountData(string json_data, string json_schema, out IList<string>messages)
+        {
+            JSchema schema = JSchema.Parse(json_schema);
+            JObject accounts = JObject.Parse(json_data);
+            return accounts.IsValid(schema, out messages);
+        }
 
+        static string RelativeToAbsolutePath(string path)
+        {
+            var projectFolder = Directory.GetParent(Directory.GetCurrentDirectory()).Parent.FullName;
+            return Path.Combine(projectFolder, "..", @path);
+        }
     }
 }

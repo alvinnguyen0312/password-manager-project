@@ -1,4 +1,13 @@
-﻿using System;
+﻿/*
+ Author: Kiet Nguyen
+ Date: June 09, 2019
+ Program: This program simulates a password manager console
+ It allows user to add more account info, delete, update 
+ password.
+ 
+ */
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
